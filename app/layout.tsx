@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Neon Dash — Run the Night',
-  description: 'A luminous endless runner arcade game. Keep moving and beat your best run.',
+  title: 'Neon Dash — Cyberpunk Arcade Network',
+  description: 'A luminous synthwave cyberpunk arcade game featuring 3 high-intensity game modes: Neon Dash, Pulse Dodge, and Signal Catch. Beat your local records.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -40,6 +40,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,600;0,700;1,700&family=Orbitron:wght@500;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body className="antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
