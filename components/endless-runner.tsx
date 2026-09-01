@@ -49,6 +49,11 @@ export function EndlessRunner({
     jumpBuffered: false,
   });
 
+  const onScoreRef = useRef(onScore);
+  useEffect(() => {
+    onScoreRef.current = onScore;
+  }, [onScore]);
+
   useEffect(() => {
     setBest(Number(window.localStorage.getItem("neon-dash-best") || 0));
   }, []);
@@ -56,7 +61,7 @@ export function EndlessRunner({
   const jump = useCallback(() => {
     if (!started || gameOver) return;
     const s = state.current;
-    if (s.y === 0) {
+    if (s.y <= 1) {
       s.velocity = 16.2;
       audio?.playJump();
     } else if (s.y < 20 && s.velocity < 0) {
@@ -87,15 +92,25 @@ export function EndlessRunner({
   }, [audio]);
 
   const handleFrameClick = useCallback(() => {
-    if (!started && !gameOver) start();
+    if (!started || gameOver) start();
     else jump();
   }, [started, gameOver, start, jump]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.code === "Space" || event.code === "ArrowUp") {
+      if (
+        event.code === "Space" ||
+        event.code === "ArrowUp" ||
+        event.key === " " ||
+        event.key === "ArrowUp" ||
+        event.key === "Enter"
+      ) {
         event.preventDefault();
-        started && !gameOver ? jump() : start();
+        if (started && !gameOver) {
+          jump();
+        } else {
+          start();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -198,10 +213,12 @@ export function EndlessRunner({
         setTimeout(() => setIsShaking(false), 500);
 
         const finalScore = Math.floor(s.score);
-        const newBest = Math.max(finalScore, best);
-        setBest(newBest);
-        window.localStorage.setItem("neon-dash-best", String(newBest));
-        onScore?.(finalScore);
+        setBest((prevBest) => {
+          const newBest = Math.max(finalScore, prevBest);
+          window.localStorage.setItem("neon-dash-best", String(newBest));
+          return newBest;
+        });
+        onScoreRef.current?.(finalScore);
         return;
       }
 
@@ -210,7 +227,7 @@ export function EndlessRunner({
 
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [started, gameOver, best, onScore, audio]);
+  }, [started, gameOver, audio]);
 
   const gameColumn = (
     <div className="play-column">

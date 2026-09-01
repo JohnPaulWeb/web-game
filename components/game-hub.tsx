@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createSynthwave, type AudioController } from "@/lib/audioEngine";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createSynthwave,
+  RADIO_PLAYLIST,
+  type AudioController,
+  type SongId,
+  type SongInfo,
+} from "@/lib/audioEngine";
 import { EndlessRunner } from "@/components/endless-runner";
+import { CyberChess } from "@/components/cyber-chess";
+import { LofiRadioModal } from "@/components/lofi-radio";
 
 type Mode = "dash" | "pulse" | "catch";
 
@@ -18,14 +26,14 @@ const modes = {
     icon: "⚡",
   },
   pulse: {
-    name: "Pulse Dodge",
+    name: "Cyber Chess",
     label: "PROTOCOL_02",
     color: "coral",
-    desc: "Thread the falling laser grid as frequency pulses accelerate.",
-    controls: "← → ARROWS OR TOUCH PADS",
-    tip: "Stay centered and react as soon as lasers enter the mid-field.",
+    desc: "Tactical neural grandmaster. Command the cyan pieces and checkmate the AI mainframe.",
+    controls: "CLICK / TAP SQUARES TO MOVE",
+    tip: "Control the center grid, maintain piece mobility, and execute tactical forks.",
     difficulty: 4,
-    icon: "☄️",
+    icon: "♟️",
   },
   catch: {
     name: "Signal Catch",
@@ -66,13 +74,17 @@ function MiniGame({
     combo: 1,
   });
 
-  const movePlayer = (delta: number) => {
-    if (!active) return;
+  const onScoreRef = useRef(onScore);
+  useEffect(() => {
+    onScoreRef.current = onScore;
+  }, [onScore]);
+
+  const movePlayer = useCallback((delta: number) => {
     ref.current.x = Math.max(8, Math.min(92, ref.current.x + delta));
     setX(ref.current.x);
-  };
+  }, []);
 
-  const start = () => {
+  const start = useCallback(() => {
     ref.current = {
       last: performance.now(),
       next: 0,
@@ -88,21 +100,38 @@ function MiniGame({
     setHitFeedback(null);
     setActive(true);
     audio?.playSelect();
-  };
+  }, [audio]);
 
   useEffect(() => {
-    const move = (e: KeyboardEvent) => {
-      if ((e.key === "ArrowLeft" || e.key === "KeyA") && active) {
-        e.preventDefault();
-        movePlayer(-8);
-      } else if ((e.key === "ArrowRight" || e.key === "KeyD") && active) {
-        e.preventDefault();
-        movePlayer(8);
+    const handleKey = (e: KeyboardEvent) => {
+      if (active) {
+        if (
+          e.key === "ArrowLeft" ||
+          e.key === "a" ||
+          e.key === "A" ||
+          e.code === "KeyA"
+        ) {
+          e.preventDefault();
+          movePlayer(-8);
+        } else if (
+          e.key === "ArrowRight" ||
+          e.key === "d" ||
+          e.key === "D" ||
+          e.code === "KeyD"
+        ) {
+          e.preventDefault();
+          movePlayer(8);
+        }
+      } else {
+        if (e.code === "Space" || e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          start();
+        }
       }
     };
-    window.addEventListener("keydown", move);
-    return () => window.removeEventListener("keydown", move);
-  }, [active]);
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [active, movePlayer, start]);
 
   useEffect(() => {
     if (!active) return;
@@ -143,6 +172,8 @@ function MiniGame({
   }, [active, mode]);
 
   useEffect(() => {
+    if (!active) return;
+
     const hit = items.find(
       (i) => i.y > 76 && i.y < 92 && Math.abs(i.x - x) < 10,
     );
@@ -152,8 +183,9 @@ function MiniGame({
         if (!hit.good) {
           // Bad corrupt node hit in catch mode
           setActive(false);
+          setItems([]);
           audio?.playHit();
-          onScore(Math.floor(ref.current.score));
+          onScoreRef.current(Math.floor(ref.current.score));
           return;
         } else {
           // Good signal collected
@@ -169,17 +201,24 @@ function MiniGame({
       } else if (mode === "pulse") {
         // In pulse dodge mode, hitting any hazard causes game over
         setActive(false);
+        setItems([]);
         audio?.playHit();
-        onScore(Math.floor(ref.current.score));
+        onScoreRef.current(Math.floor(ref.current.score));
         return;
       }
       setItems((v) => v.filter((i) => i.id !== hit.id));
     }
-  }, [items, x, mode, onScore, audio]);
+  }, [items, x, mode, active, audio]);
 
   return (
     <div className="play-column">
-      <div className={`mini-stage mode-${mode}`}>
+      <div
+        className={`mini-stage mode-${mode}`}
+        onClick={() => {
+          if (!active) start();
+        }}
+        style={{ cursor: active ? "default" : "pointer" }}
+      >
         <div className="mini-grid" />
         <div className="scanlines" />
 
@@ -237,7 +276,13 @@ function MiniGame({
                 TELEMETRY CAPTURED: <b>{score} PTS</b>
               </p>
             )}
-            <button className="start-button" onClick={start}>
+            <button
+              className="start-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                start();
+              }}
+            >
               {score > 0 ? "RETRY LINK" : "DEPLOY PROTOCOL"} <b>→</b>
             </button>
           </div>
@@ -288,19 +333,27 @@ export function GameHub() {
   const [mode, setMode] = useState<Mode>("dash");
   const [dashPlaying, setDashPlaying] = useState(true);
   const [tutorial, setTutorial] = useState(false);
+  const [radioOpen, setRadioOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [volume, setVolume] = useState(25);
   const [music, setMusic] = useState(false);
+  const [currentSong, setCurrentSong] = useState<SongInfo>(RADIO_PLAYLIST[0]);
   const [best, setBest] = useState<Record<Mode, number>>({
     dash: 0,
     pulse: 0,
     catch: 0,
   });
 
+  const [audioCtrl, setAudioCtrl] = useState<AudioController | null>(null);
   const audio = useRef<AudioController | null>(null);
 
   useEffect(() => {
-    audio.current = createSynthwave();
+    const ctrl = createSynthwave();
+    audio.current = ctrl;
+    setAudioCtrl(ctrl);
+    ctrl.setTrack("lofi-tokyo");
+    setCurrentSong(ctrl.getCurrentSong());
+
     setBest({
       dash: Math.max(
         Number(localStorage.getItem("best-dash") || 0),
@@ -315,7 +368,7 @@ export function GameHub() {
     }
 
     return () => {
-      audio.current?.stop();
+      ctrl.stop();
     };
   }, []);
 
@@ -336,9 +389,30 @@ export function GameHub() {
   const toggleMusic = () => {
     const next = audio.current?.toggle() || false;
     setMusic(next);
+    if (audio.current) {
+      setCurrentSong(audio.current.getCurrentSong());
+    }
   };
 
-  const saveScore = (n: number) => {
+  const handleNextSong = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!audio.current) return;
+    audio.current.playSelect();
+    const next = audio.current.nextTrack();
+    setCurrentSong(next);
+    if (!music) toggleMusic();
+  };
+
+  const handlePrevSong = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!audio.current) return;
+    audio.current.playSelect();
+    const prev = audio.current.prevTrack();
+    setCurrentSong(prev);
+    if (!music) toggleMusic();
+  };
+
+  const saveScore = useCallback((n: number) => {
     setBest((v) => {
       const next = { ...v, [mode]: Math.max(v[mode], n) };
       localStorage.setItem(`best-${mode}`, String(next[mode]));
@@ -347,7 +421,7 @@ export function GameHub() {
       }
       return next;
     });
-  };
+  }, [mode]);
 
   const selectMode = (key: Mode) => {
     audio.current?.playSelect();
@@ -375,19 +449,61 @@ export function GameHub() {
           </div>
 
           <div className="audio-control-bar">
+            {/* Interactive Lo-Fi Radio Deck Trigger */}
+            <button
+              onClick={() => {
+                audio.current?.playSelect();
+                setRadioOpen(true);
+              }}
+              className={`radio-station-btn ${music ? "playing" : ""}`}
+              title="Open Lo-Fi Radio & Pick Music"
+              aria-label="Open Lo-Fi Radio Station Deck"
+            >
+              <span className="station-icon">{currentSong.icon}</span>
+              <div className="station-text">
+                <span className="station-song">{currentSong.title}</span>
+                <span className="station-freq">{currentSong.freq}</span>
+              </div>
+              <span className="radio-pick-hint">PICK SONG ▾</span>
+            </button>
+
+            {/* Quick Song Skipper */}
+            <div className="radio-quick-nav">
+              <button
+                className="mini-nav-btn"
+                onClick={handlePrevSong}
+                title="Previous Beat"
+                aria-label="Previous Beat"
+              >
+                ⏮
+              </button>
+              <button
+                className="mini-nav-btn"
+                onClick={handleNextSong}
+                title="Next Beat"
+                aria-label="Next Beat"
+              >
+                ⏭
+              </button>
+            </div>
+
+            {/* Play/Pause Button */}
             <button
               onClick={toggleMusic}
               className={`audio-btn ${music ? "active" : ""}`}
-              aria-label="Toggle Synthwave Music"
+              aria-label={`Toggle ${currentSong.title}`}
             >
               <div className="eq-bars">
                 <span className="eq-bar" />
                 <span className="eq-bar" />
                 <span className="eq-bar" />
               </div>
-              <span>SYNTHWAVE {music ? "ON" : "OFF"}</span>
+              <span className="audio-state-label">
+                {music ? "PLAYING" : "MUTED"}
+              </span>
             </button>
 
+            {/* Volume Slider */}
             <input
               aria-label="Music volume slider"
               type="range"
@@ -481,7 +597,7 @@ export function GameHub() {
             dashPlaying ? (
               <EndlessRunner
                 embedded
-                audio={audio.current}
+                audio={audioCtrl}
                 onExit={() => setDashPlaying(false)}
                 onScore={saveScore}
               />
@@ -499,7 +615,7 @@ export function GameHub() {
                   <button
                     className="start-button"
                     onClick={() => {
-                      audio.current?.playSelect();
+                      audioCtrl?.playSelect();
                       setDashPlaying(true);
                     }}
                   >
@@ -508,11 +624,16 @@ export function GameHub() {
                 </div>
               </div>
             )
+          ) : mode === "pulse" ? (
+            <CyberChess
+              audio={audioCtrl}
+              onScore={saveScore}
+            />
           ) : (
             <MiniGame
               mode={mode}
               onScore={saveScore}
-              audio={audio.current}
+              audio={audioCtrl}
             />
           )}
         </div>
@@ -634,6 +755,18 @@ export function GameHub() {
           </div>
         </div>
       )}
+
+      {/* Lo-Fi Radio Modal */}
+      <LofiRadioModal
+        isOpen={radioOpen}
+        onClose={() => {
+          setRadioOpen(false);
+          if (audioCtrl) setCurrentSong(audioCtrl.getCurrentSong());
+        }}
+        audio={audioCtrl}
+        isPlaying={music}
+        onTogglePlay={toggleMusic}
+      />
     </main>
   );
 }
